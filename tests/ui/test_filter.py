@@ -13,13 +13,6 @@ def _ap(**kw) -> AccessPoint:
     return AccessPoint(bssid="AA:BB:CC:DD:EE:FF", **kw)
 
 
-@pytest.fixture(autouse=True)
-def _restore_silenced():
-    before = list(Config.silenced_bssids)
-    yield
-    Config.silenced_bssids = before
-
-
 # ---- text_matches ----------------------------------------------------------
 
 def test_empty_query_matches_everything():
@@ -201,6 +194,37 @@ async def test_hide_silenced_checkbox_keeps_the_other_predicates():
         assert scan
         last = scan[-1][1]
         assert (last.text, last.encryption, last.hide_silenced) == ("net", EncryptionFilter.WPA, True)
+
+
+async def test_hide_silenced_follows_a_later_silence():
+    """The scanner re-runs the predicate each tick, so silencing from Focus drops the row."""
+    ap = _ap(ssid="neighbour")
+    scan_filter = ScanFilter(hide_silenced=True)
+    assert scan_filter.matches(ap)
+    Config.silenced_bssids = ["aa:bb:cc:dd:ee:ff"]
+    assert not scan_filter.matches(ap)
+
+
+async def test_checkbox_starts_from_the_persisted_setting():
+    Config.hide_silenced = True
+    app = _Host([1, 6, 11])
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert app.query_one("#filter-hide-silenced", Checkbox).value is True
+        app.query_one("#filter-text", Input).value = "net"
+        await pilot.pause()
+        scan = [e for e in app.events if e[0] == "scan"]
+        assert scan and scan[-1][1].hide_silenced is True
+
+
+@pytest.mark.parametrize("width", [90, 100, 120])
+async def test_filter_bar_fits_every_control_on_screen(width):
+    """The text Input yields width so the hide-silenced checkbox is never clipped off the bar."""
+    app = _Host([1, 6, 11, 36, 40])
+    async with app.run_test(size=(width, 6)) as pilot:
+        await pilot.pause()
+        bar = app.query_one(FilterBar)
+        assert not [c.id for c in bar.children if c.region.x + c.region.width > width]
 
 
 async def test_channels_button_requests_dialog():

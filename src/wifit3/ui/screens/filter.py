@@ -86,8 +86,8 @@ class FilterBar(Horizontal):
     FilterBar > Label { margin-right: 1; color: $text-muted; }
     FilterBar > #filter-encryption { width: 12; margin-right: 2; }
     FilterBar > #filter-channels { margin-right: 2; }
-    FilterBar > Input { width: 32; }
-    FilterBar > #filter-hide-silenced { margin-left: 2; }
+    FilterBar > Input { width: 1fr; min-width: 16; max-width: 32; }
+    FilterBar > #filter-hide-silenced { margin-left: 2; border: none; }
     FilterBar Select.-expanded SelectOverlay { border: round $primary !important; background: $surface; }
     """
 
@@ -116,7 +116,8 @@ class FilterBar(Horizontal):
         )
         yield Button(self._channels_text(None), id="filter-channels", compact=True)
         yield Input(placeholder="filter by ssid…", id="filter-text", compact=True)
-        yield Checkbox("Hide [red]✗S[/red]", id="filter-hide-silenced", compact=True)
+        yield Checkbox("Hide silenced", value=Config.hide_silenced,
+                       id="filter-hide-silenced", compact=True)
 
     def focus_text(self) -> None:
         self.query_one("#filter-text", Input).focus()
