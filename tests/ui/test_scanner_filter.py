@@ -4,11 +4,12 @@ it straight back without having to rediscover it."""
 from contextlib import asynccontextmanager
 
 import pytest
+import pytest_asyncio
 from textual.app import App
-from textual.widgets import DataTable
 
 from wifit3.models import AccessPoint, IdKey, IdSource
 from wifit3.persist.vault import Vault
+from wifit3.ui.ap_table import APTable
 from wifit3.ui.screens.filter import EncryptionFilter, ScanFilter
 from wifit3.ui.screens.scanner import ScannerView
 
@@ -86,7 +87,7 @@ async def test_encryption_filter_hides_rows_but_keeps_registry():
         await pilot.pause(0)
         scanner = app.screen
         assert isinstance(scanner, ScannerView)
-        table = scanner.query_one("#ap-table", DataTable)
+        table = scanner.query_one("#ap-table", APTable)
 
         scanner.refresh_table()
         assert table.row_count == 2
@@ -117,7 +118,7 @@ async def test_text_filter_matches_hidden_ap_via_guessed_sibling():
     async with app.run_test() as pilot:
         await pilot.pause(0)
         scanner = app.screen
-        table = scanner.query_one("#ap-table", DataTable)
+        table = scanner.query_one("#ap-table", APTable)
 
         scanner._scan_filter = ScanFilter(text="castle")
         scanner.refresh_table()
@@ -127,40 +128,48 @@ async def test_text_filter_matches_hidden_ap_via_guessed_sibling():
         assert other.bssid not in scanner.ap_cache
 
 
-def test_scanner_identity_cell_shows_manufacturer_and_model():
-    scanner = ScannerView()
-    scanner._theme_fg = "white"
-    ap = AccessPoint(
-        bssid="02:00:00:00:00:01",
-        ssid="Lab",
-        channel=1,
-    )
+@pytest_asyncio.fixture(loop_scope="module", scope="module")
+async def _identity_app():
+    app = _ScannerHost(_FakeArray([], [1, 6, 11]))
+    async with app.run_test() as pilot:
+        await pilot.pause(0)
+        yield app, pilot
+
+
+@pytest_asyncio.fixture(loop_scope="module")
+async def identity_shown(_identity_app):
+    """Returns the VENDOR/ID value the scanner hands the table for one AP."""
+    app, pilot = _identity_app
+
+    def shown(ap: AccessPoint) -> str:
+        app.array.access_points = {ap.bssid: ap}
+        app.screen.refresh_table()
+        return app.screen.query_one("#ap-table", APTable).row_data(ap.bssid).identity
+
+    return shown
+
+
+@pytest.mark.asyncio(loop_scope="module")
+async def test_scanner_identity_cell_shows_manufacturer_and_model(identity_shown):
+    ap = AccessPoint(bssid="02:00:00:00:00:01", ssid="Lab", channel=1)
     ap.identity.set(IdSource.WSC_BEACON, IdKey.MANUFACTURER, "MikroTik")
     ap.identity.set(IdSource.WSC_BEACON, IdKey.MODEL_NAME, "hAP ac²")
-    cell = scanner._identity_cell(ap)
-    assert cell.plain == "MikroTik hAP ac²"
+    assert identity_shown(ap) == "MikroTik hAP ac²"
 
 
-def test_scanner_identity_cell_blank_when_unknown():
-    scanner = ScannerView()
-    scanner._theme_fg = "white"
-    ap = AccessPoint(bssid="02:00:00:00:00:01")
-    assert scanner._identity_cell(ap).plain == ""
+@pytest.mark.asyncio(loop_scope="module")
+async def test_scanner_identity_cell_blank_when_unknown(identity_shown):
+    assert identity_shown(AccessPoint(bssid="02:00:00:00:00:01")) == ""
 
 
-def test_scanner_identity_cell_shows_summary():
-    scanner = ScannerView()
-    scanner._theme_fg = "white"
-    ap = AccessPoint(
-        bssid="02:00:00:00:00:01",
-        ssid="Vodafone-123456",
-    )
+@pytest.mark.asyncio(loop_scope="module")
+async def test_scanner_identity_cell_shows_summary(identity_shown):
+    ap = AccessPoint(bssid="02:00:00:00:00:01", ssid="Vodafone-123456")
     ap.identity.set(IdSource.WSC_BEACON, IdKey.MANUFACTURER, "Celeno")
-    assert scanner._identity_cell(ap).plain == "Celeno"
+    assert identity_shown(ap) == "Celeno"
 
 
-def test_scanner_identity_cell_oui_fallback():
-    scanner = ScannerView()
-    scanner._theme_fg = "white"
+@pytest.mark.asyncio(loop_scope="module")
+async def test_scanner_identity_cell_oui_fallback(identity_shown):
     ap = AccessPoint(bssid="00:03:93:11:22:33", ssid="Alice’s iPhone")
-    assert scanner._identity_cell(ap).plain == "Apple"
+    assert identity_shown(ap) == "Apple"
